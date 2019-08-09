@@ -1,6 +1,6 @@
 // Exported from:        http://kubuntu:5516/#/templates/Folderf09d5151d0184571b0bae064d0bc0219-Release90240ec85f164451a0cca0d7e62d4795/releasefile
 // XL Release version:   8.6.3
-// Date created:         Fri Aug 09 08:12:05 CEST 2019
+// Date created:         Fri Aug 09 15:27:08 CEST 2019
 
 xlr {
   template('Provision new infrastructure - java bdd project') {
@@ -207,6 +207,7 @@ xlr {
                         'Environments/infrastructure-${project_name}/infrastructure-${project_name}-${environment}/infrastructure-${project_name}-${environment}'
             team 'Seguridad'
             precondition '"${environment}" == "pro"'
+            locked true
           }
         }
       }
@@ -224,6 +225,8 @@ xlr {
             }
           }
           notification('Infraestructura creada en AWS') {
+            description '### Notificación de infraestructura creada\n' +
+                        'Notificación al equipo de operaciones de que se ha creado la estructura y de que debe acometer ciertas operaciones.'
             team 'Operaciones'
             addresses 'ramon@gmail.com'
             subject 'Infraestructura provisionada para el proyecto ${project_name} y entorno ${environment}'
@@ -297,33 +300,53 @@ xlr {
           }
           parallelGroup('Provisioning de instancias') {
             tasks {
-              custom('Provisioning de las instancia-front EC2 en Amazon') {
+              custom('Provisioning de la instancia-front EC2 en Amazon') {
                 description '### Ejecución del script de provisioning\n' +
                             'Este script provisionará la instancia EC2 que encargará de la parte front.'
-                team 'Desarrollo'
                 script {
-                  type 'remoteScript.Unix'
-                  script 'cd /home/jcla/Projects/desarrollo/playbooks-provisioning\n' +
-                         'ansible-playbook -u ubuntu -i "${ip_front}," --private-key "${private_key_path}" playbook-front.yml --ssh-common-args=\'-o StrictHostKeyChecking=no\''
-                  address 'localhost'
-                  username 'jcla'
-                  password '{aes:v0}Y+x6rR/YEGWzRCvaASaI/z7cN+x8Zi/bV7u+LYkQtFQ='
+                  type 'ansible.RunPlaybook'
+                  host 'ansible-machine-control'
+                  playbook 
+                  playbookPath '/home/jcla/Projects/desarrollo/playbooks-provisioning/playbook-front.yml'
+                  cmdParams '-u ubuntu -i "${ip_front}," --private-key "${private_key_path}" --ssh-common-args="-o StrictHostKeyChecking=no"'
                 }
               }
-              custom('Provisioning de las instancia-bdd EC2 en Amazon') {
+              custom('Provisioning de la instancia-bdd EC2 en Amazon') {
                 description '### Ejecución del script de provisioning\n' +
                             'Este script provisionará la instancia EC2 que encargará de la parte bdd.'
-                team 'Desarrollo'
                 script {
-                  type 'remoteScript.Unix'
-                  script 'cd /home/jcla/Projects/desarrollo/playbooks-provisioning\n' +
-                         'ansible-playbook -u ubuntu -i "${ip_bdd}," --private-key "${private_key_path}" playbook-bdd.yml --ssh-common-args=\'-o StrictHostKeyChecking=no\''
-                  address 'localhost'
-                  username 'jcla'
-                  password '{aes:v0}FD7WtNxhA49sPWRQfuzLBSUTFmtonimHfTf6P77d9NA='
+                  type 'ansible.RunPlaybook'
+                  host 'ansible-machine-control'
+                  playbook 
+                  playbookPath '/home/jcla/Projects/desarrollo/playbooks-provisioning/playbook-bdd.yml'
+                  cmdParams '-u ubuntu -i "${ip_bdd}," --private-key "${private_key_path}" --ssh-common-args="-o StrictHostKeyChecking=no"'
                 }
               }
             }
+          }
+          custom('Creación de entorno en XLD') {
+            description '## Creación de recursos en XLD\n' +
+                        '\n' +
+                        'Se invocará a la ejecución del script remoto `https://raw.githubusercontent.com/jclopeza/xlr-scripts/master/createXLDResourcesTerraformModuleJavaBddProjectContainers.py`\n' +
+                        '\n' +
+                        'Este script se ejecutará con el CLI para la creación de nuevos containers en XLD y un nuevo entorno de despliegue.'
+            team 'Operaciones'
+            script {
+              type 'xld.cliUrl'
+              cli 'xl-deploy-8.6.2-cli'
+              scriptUrl 'https://raw.githubusercontent.com/jclopeza/xlr-scripts/master/createXLDResourcesTerraformModuleJavaBddProjectContainers.py'
+              options '${environment} ${project_name}'
+            }
+          }
+          notification('Notificación a desarrollo de nuevo entorno disponible') {
+            description '### Notificación a desarrollo de nuevo entorno disponible\n' +
+                        'Notificación al equipo de desarrollo de que se ha creado el nuevo entorno para que puedan desplegarse las aplicaciones correspondientes.'
+            team 'Desarrollo'
+            addresses 'oscar@gmail.com'
+            subject 'Entorno disponible para ${project_name} y entorno ${environment}'
+            body '### Entorno creado para el proyecto ${project_name} y entorno ${environment}\n' +
+                 '\n' +
+                 'Se ha creado un nuevo entorno en XL Deploy para que pueda desplegar su aplicación.'
           }
         }
       }
