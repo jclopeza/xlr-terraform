@@ -1,6 +1,6 @@
 // Exported from:        http://kubuntu:5516/#/templates/Folderf09d5151d0184571b0bae064d0bc0219-Release90240ec85f164451a0cca0d7e62d4795/releasefile
 // XL Release version:   8.6.3
-// Date created:         Fri Aug 09 15:27:08 CEST 2019
+// Date created:         Thu Aug 22 12:21:28 CEST 2019
 
 xlr {
   template('Provision new infrastructure - java bdd project') {
@@ -35,6 +35,7 @@ xlr {
         showOnReleaseStart false
         label 'Nombre del proyecto'
         description 'Nombre del proyecto a crear. Debe existir una aplicación del mismo nombre en XL Deploy bajo Applications/Infrastructures'
+        value 'calculator'
       }
       stringVariable('public_key_path') {
         required false
@@ -81,11 +82,23 @@ xlr {
         label 'IP de la máquina de bdd'
         description 'IP obtenida de forma dinámica de las instancias EC2 creadas'
       }
+      listVariable('list_tags') {
+        required false
+        showOnReleaseStart false
+      }
+      listBoxVariable('tag_ansible_selected') {
+        required false
+        showOnReleaseStart false
+        label 'Versiones de playbooks disponibles'
+        possibleValues variable('list_tags')
+      }
     }
     description '# Template para el provisionamiento de nueva infraestructura en AWS\n' +
                 '\n' +
                 'Esta template se encargar del provisionamiento de una nueva infraestructura en AWS'
     scheduledStartDate Date.parse("yyyy-MM-dd'T'HH:mm:ssZ", '2019-08-08T09:00:00+0200')
+    scriptUsername 'admin'
+    scriptUserPassword '{aes:v0}QU5yG9OrfTdu5gBXiYj+vKwd+p6025V/ObFWWyjMNdA='
     phases {
       phase('OBTENCIÓN DE DATOS') {
         color '#0099CC'
@@ -224,35 +237,6 @@ xlr {
               deploymentEnvironment 'Environments/infrastructure-${project_name}/infrastructure-${project_name}-${environment}/infrastructure-${project_name}-${environment}'
             }
           }
-          notification('Infraestructura creada en AWS') {
-            description '### Notificación de infraestructura creada\n' +
-                        'Notificación al equipo de operaciones de que se ha creado la estructura y de que debe acometer ciertas operaciones.'
-            team 'Operaciones'
-            addresses 'ramon@gmail.com'
-            subject 'Infraestructura provisionada para el proyecto ${project_name} y entorno ${environment}'
-            body '### Infraestructura provisionada para el proyecto ${project_name} y entorno ${environment}\n' +
-                 '\n' +
-                 'Se ha creado nueva infraestructura en AWS. Recuerde que:\n' +
-                 '\n' +
-                 '* Debe habilitar la monitorización\n' +
-                 '* Debe establecer alertas de consumo\n' +
-                 '* Debe notificar cualquier anomalía o corte de servicio a la dirección sistemas@gmail.com\n' +
-                 '\n' +
-                 'Estos son los datos relacionados con la infraestructura:\n' +
-                 '\n' +
-                 '1. **Environment:** ${environment}\n' +
-                 '2. **Proyecto:** ${project_name}\n' +
-                 '3. **Región AWS:** ${aws_region}\n' +
-                 '4. **Tipo de instancias:** ${instance_type}\n' +
-                 '5. **Claves pública y privada:** ${public_key_path} y ${private_key_path}'
-          }
-          manual('Validación de conexión a hosts remotos') {
-            description '### Validación de conexión a hosts remotos\n' +
-                        'Se han creado nuevas instancias EC2 en XL Deploy. Debe acceder para comprobar que hay conectividad con las claves proporcionadas.\n' +
-                        '\n' +
-                        '#### Los nombres de las máquinas son "${project_name}-${environment}-*"'
-            team 'Operaciones'
-          }
           parallelGroup('Obtención de las IPs remotas') {
             tasks {
               custom('IP de la máquina front') {
@@ -280,29 +264,60 @@ xlr {
         }
       }
       phase('PROVISIONING') {
-        color '#0099CC'
+        color '#991C71'
         tasks {
-          userInput('Selección de versión de provisioning') {
-            description '### Máquinas a provisionar\n' +
-                        'Se van a provisionar las máquinas:\n' +
-                        '\n' +
-                        '#### ${project_name}-${environment}-front con IP = ${ip_front}\n' +
-                        '#### ${project_name}-${environment}-bdd con IP = ${ip_bdd}\n' +
-                        '\n' +
-                        '### Versión de los playbooks\n' +
-                        'Debe seleccionar la versión de los playbooks que se van a utilizar para hacer el provisioning del nuevo entorno creado.\n' +
-                        '\n' +
-                        '#### Debe seleccionar entre una de las versiones que hay disponibles para el proyecto ${project_name}'
-            team 'Operaciones'
-            variables {
-              variable 'version_provisioning'
+          sequentialGroup('Selección de versión de playbooks de Ansible a ejecutar') {
+            tasks {
+              script('Selección de versión de playbooks para provisioning') {
+                description '### Este script se encarga de consultar a Github las versiones disponibles de los playbooks para el provisioning'
+                team 'Desarrollo'
+                script (['''\
+import json
+gitServer = 'https://api.github.com'
+request = HttpRequest({'url': gitServer})
+response = request.get('/repos/jclopeza/playbooks-provisioning/tags', contentType='application/json')
+listTags = []
+data = json.loads(response.response)
+for i in data:
+    listTags = listTags + [i['name']]
+releaseVariables['list_tags'] = listTags
+'''])
+              }
+              userInput('Selección de versión de provisioning') {
+                description '### Máquinas a provisionar\n' +
+                'Se van a provisionar las máquinas:\n' +
+                '\n' +
+                '#### ${project_name}-${environment}-front con IP = ${ip_front}\n' +
+                '#### ${project_name}-${environment}-bdd con IP = ${ip_bdd}\n' +
+                '\n' +
+                '### Versión de los playbooks\n' +
+                'Debe seleccionar la versión de los playbooks que se van a utilizar para hacer el provisioning del nuevo entorno creado.\n' +
+                '\n' +
+                '#### Debe seleccionar entre una de las versiones que hay disponibles para el proyecto ${project_name}'
+                team 'Operaciones'
+                variables {
+                  variable 'tag_ansible_selected'
+                }
+              }
+              custom('Checkout a la versión de los playbooks seleccionada') {
+                team 'Desarrollo'
+                script {
+                  type 'remoteScript.Unix'
+                  script 'cd /home/jcla/Projects/desarrollo/playbooks-provisioning\n' +
+                  'git pull\n' +
+                  'git checkout ${tag_ansible_selected}'
+                  address 'localhost'
+                  username 'jcla'
+                  password '{aes:v0}SwWbASAGDnPzbL747TTApipXr0IViK0fDz+zniOAB3k='
+                }
+              }
             }
           }
           parallelGroup('Provisioning de instancias') {
             tasks {
               custom('Provisioning de la instancia-front EC2 en Amazon') {
                 description '### Ejecución del script de provisioning\n' +
-                            'Este script provisionará la instancia EC2 que encargará de la parte front.'
+                'Este script provisionará la instancia EC2 que encargará de la parte front.'
                 script {
                   type 'ansible.RunPlaybook'
                   host 'ansible-machine-control'
@@ -313,7 +328,7 @@ xlr {
               }
               custom('Provisioning de la instancia-bdd EC2 en Amazon') {
                 description '### Ejecución del script de provisioning\n' +
-                            'Este script provisionará la instancia EC2 que encargará de la parte bdd.'
+                'Este script provisionará la instancia EC2 que encargará de la parte bdd.'
                 script {
                   type 'ansible.RunPlaybook'
                   host 'ansible-machine-control'
@@ -326,27 +341,95 @@ xlr {
           }
           custom('Creación de entorno en XLD') {
             description '## Creación de recursos en XLD\n' +
-                        '\n' +
-                        'Se invocará a la ejecución del script remoto `https://raw.githubusercontent.com/jclopeza/xlr-scripts/master/createXLDResourcesTerraformModuleJavaBddProjectContainers.py`\n' +
-                        '\n' +
-                        'Este script se ejecutará con el CLI para la creación de nuevos containers en XLD y un nuevo entorno de despliegue.'
+            '\n' +
+            'Se invocará a la ejecución del script remoto `https://raw.githubusercontent.com/jclopeza/xlr-scripts/master/createXLDResourcesTerraformModuleJavaBddProjectContainers.py`\n' +
+            '\n' +
+            'Este script se ejecutará con el CLI para la creación de nuevos containers en XLD y un nuevo entorno de despliegue.'
             team 'Operaciones'
             script {
               type 'xld.cliUrl'
               cli 'xl-deploy-8.6.2-cli'
               scriptUrl 'https://raw.githubusercontent.com/jclopeza/xlr-scripts/master/createXLDResourcesTerraformModuleJavaBddProjectContainers.py'
-              options '${environment} ${project_name}'
+              options '${environment} ${project_name} ${ip_front} ${ip_bdd}'
             }
           }
           notification('Notificación a desarrollo de nuevo entorno disponible') {
             description '### Notificación a desarrollo de nuevo entorno disponible\n' +
-                        'Notificación al equipo de desarrollo de que se ha creado el nuevo entorno para que puedan desplegarse las aplicaciones correspondientes.'
+            'Notificación al equipo de desarrollo de que se ha creado el nuevo entorno para que puedan desplegarse las aplicaciones correspondientes.'
             team 'Desarrollo'
             addresses 'oscar@gmail.com'
             subject 'Entorno disponible para ${project_name} y entorno ${environment}'
             body '### Entorno creado para el proyecto ${project_name} y entorno ${environment}\n' +
-                 '\n' +
-                 'Se ha creado un nuevo entorno en XL Deploy para que pueda desplegar su aplicación.'
+            '\n' +
+            'Se ha creado un nuevo entorno en XL Deploy para que pueda desplegar su aplicación.'
+          }
+        }
+      }
+      phase('COMUNICACIÓN Y VALIDACIÓN') {
+        color '#FD8D10'
+        tasks {
+          sequentialGroup('Generación de reports') {
+            tasks {
+              custom('Generación de gráfico con la infraestructura') {
+                script {
+                  type 'remoteScript.Unix'
+                  script '#!/bin/bash\n' +
+                  'TERRAFORMDIR=/var/opt/xebialabs/terraform-states/${project_name}-${environment}\n' +
+                  'HTMLDIR=/var/www/html/${project_name}-${environment}\n' +
+                  '[ -d $TERRAFORMDIR ] || exit 1\n' +
+                  '[ -d $HTMLDIR ] || mkdir -p $HTMLDIR\n' +
+                  '[ -f $HTMLDIR/graph.svg ] && rm $HTMLDIR/graph.svg\n' +
+                  '[ -f $HTMLDIR/index.html ] && rm $HTMLDIR/index.html\n' +
+                  'cd $TERRAFORMDIR\n' +
+                  'cd -- "$(find . -name terraform.tfstate -type f -printf \'%h\' -quit)"\n' +
+                  'terraform graph | dot -Tsvg > $HTMLDIR/graph.svg'
+                  address 'localhost'
+                  username 'jcla'
+                  password '{aes:v0}h0xA0jqmtd3uxr0hL+8fWS8yhjyb4rdMD0DkcXWTOqA='
+                }
+              }
+              custom('Generación de html') {
+                script {
+                  type 'remoteScript.Unix'
+                  script 'python generateTerraformHtmlReport.py ${environment} ${project_name} ${aws_region} ${instance_type} ${version_infrastructure_selected} ${tag_ansible_selected}'
+                  remotePath '/home/jcla/Projects/xlr-scripts'
+                  address 'localhost'
+                  username 'jcla'
+                  password '{aes:v0}pxqEmpixl4+ch8stYc0T3fHiHuFvhfKRs8eqKe33Wx4='
+                }
+              }
+            }
+          }
+          manual('Validación de conexión a hosts remotos') {
+            description '### Validación de conexión a hosts remotos\n' +
+            'Se han creado nuevas instancias EC2 en XL Deploy. Debe acceder para comprobar que hay conectividad con las claves proporcionadas.\n' +
+            '\n' +
+            '#### Los nombres de las máquinas son "${project_name}-${environment}-*"'
+            team 'Operaciones'
+          }
+          notification('Infraestructura creada en AWS') {
+            description '### Notificación de infraestructura creada\n' +
+            'Notificación al equipo de operaciones de que se ha creado la estructura y de que debe acometer ciertas operaciones.'
+            team 'Operaciones'
+            addresses 'ramon@gmail.com'
+            subject 'Infraestructura provisionada para el proyecto ${project_name} y entorno ${environment}'
+            body '### Infraestructura provisionada para el proyecto ${project_name} y entorno ${environment}\n' +
+            '\n' +
+            'Se ha creado nueva infraestructura en AWS. Recuerde que:\n' +
+            '\n' +
+            '* Debe habilitar la monitorización\n' +
+            '* Debe establecer alertas de consumo\n' +
+            '* Debe notificar cualquier anomalía o corte de servicio a la dirección sistemas@gmail.com\n' +
+            '\n' +
+            'Estos son los datos relacionados con la infraestructura:\n' +
+            '\n' +
+            '1. **Environment:** ${environment}\n' +
+            '2. **Proyecto:** ${project_name}\n' +
+            '3. **Región AWS:** ${aws_region}\n' +
+            '4. **Tipo de instancias:** ${instance_type}\n' +
+            '5. **Claves pública y privada:** ${public_key_path} y ${private_key_path}\n' +
+            '\n' +
+            'También puedes consultar el [gráfico de la estructura creada](http://localhost/${project_name}-${environment}).'
           }
         }
       }
