@@ -1,6 +1,6 @@
 // Exported from:        http://kubuntu:5516/#/templates/Foldera4e502533f9142e2bb6034b566242c36-Release9835d9aa0736415ab9e9b47229c8ff2e/releasefile
 // XL Release version:   9.0.6
-// Date created:         Wed Oct 09 16:50:21 CEST 2019
+// Date created:         Thu Oct 10 10:40:36 CEST 2019
 
 xlr {
   template('Provision new infrastructure - java bdd project') {
@@ -226,6 +226,9 @@ xlr {
             team 'Seguridad'
             precondition '"${environment}" == "pro"'
             locked true
+          }
+          manual('eliminar') {
+            
           }
         }
       }
